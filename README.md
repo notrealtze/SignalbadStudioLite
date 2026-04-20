@@ -27,7 +27,7 @@ SignalBad  (ModuleScript)
 
 ## Defining signals
 
-Create a shared ModuleScript that both server and client require. Both sides must require it so their packet registries are built in the same order with the same IDs.
+Define signals at the top level of any module that both server and client require. Both sides must require that module so their packet registries are built in the same order with the same IDs.
 
 ```lua
 local SignalBad = require(game:GetService("ReplicatedStorage").GameAssets.SignalBad.SignalBad)
@@ -48,7 +48,7 @@ end)
 ## Server
 
 ```lua
-local Signals = require(path.to.SharedSignals)
+local Signals = require(path.to.YourSignalsModule)
 
 Signals.Hit:Connect(function(player, position, weapon)
     print(player.Name, "hit at", position, "with", weapon)
@@ -63,7 +63,7 @@ Signals.Died:FireAllClients(Vector3.new(10, 0, 10))
 
 ```lua
 local SignalBad = require(game:GetService("ReplicatedStorage"):WaitForChild("GameAssets"):WaitForChild("SignalBad"):WaitForChild("SignalBad"))
-local Signals = require(path.to.SharedSignals)
+local Signals = require(path.to.YourSignalsModule)
 
 Signals.Hit:Fire(Vector3.new(0, 5, 0), "sword")
 
@@ -90,7 +90,7 @@ end)
 
 ### `SignalBad.defineSignal(config?)`
 
-Creates and registers a new signal. Must be called at the top level of a shared module — never inside a function or conditional, because the packet ID is assigned at require-time and both sides must assign IDs in the same order.
+Creates and registers a new signal. Must be called at the top level of a module — never inside a function or conditional, because the packet ID is assigned at require-time and both sides must assign IDs in the same order.
 
 `config` is optional:
 
@@ -179,7 +179,7 @@ All network traffic goes through two remotes. The server listener rejects anythi
 
 ## Important rules for AI
 
-- **Always require the shared signals module on both server and client.** If only one side requires it, the packet IDs will not match and signals will silently not fire.
+- **Always require the signals module on both server and client.** If only one side requires it, the packet IDs will not match and signals will silently not fire.
 - **Never call `defineSignal` inside a function, loop, or conditional.** It must run at require-time on both sides in the same order. If the order differs, every signal will be wired to the wrong handler.
 - **Client requires must use `WaitForChild`** all the way down to the SignalBad module itself, not just to the signals module.
 - **`defineNamespace` is cosmetic.** It does not create folders or remotes. The name is not sent over the network.
