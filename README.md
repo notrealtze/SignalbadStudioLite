@@ -27,12 +27,22 @@ SignalBad  (ModuleScript)
 
 ## Defining signals
 
-Define signals at the top level of any module that both server and client require. Both sides must require that module so their packet registries are built in the same order with the same IDs.
+Require SignalBad and call `defineSignal` directly. Both server and client must require SignalBad and define signals in the same order — packet IDs are assigned at require-time, so if the order differs between sides, signals will fire the wrong handlers.
 
 ```lua
 local SignalBad = require(game:GetService("ReplicatedStorage").GameAssets.SignalBad.SignalBad)
 
-return SignalBad.defineNamespace("Combat", function()
+local Hit = SignalBad.defineSignal()
+local Died = SignalBad.defineSignal()
+local Damage = SignalBad.defineSignal({
+    rateLimit = { maxCalls = 10, interval = 1 },
+})
+```
+
+You can optionally use `defineNamespace` to group signals. It's purely cosmetic — the name is never sent over the network.
+
+```lua
+local Signals = SignalBad.defineNamespace("Combat", function()
     return {
         Hit = SignalBad.defineSignal(),
         Died = SignalBad.defineSignal(),
@@ -43,31 +53,34 @@ return SignalBad.defineNamespace("Combat", function()
 end)
 ```
 
-`defineNamespace` is a grouping helper — it just calls the builder and returns the table. The namespace name is not sent over the network.
-
 ## Server
 
 ```lua
-local Signals = require(path.to.YourSignalsModule)
+local SignalBad = require(game:GetService("ReplicatedStorage").GameAssets.SignalBad.SignalBad)
 
-Signals.Hit:Connect(function(player, position, weapon)
+local Hit = SignalBad.defineSignal()
+local Died = SignalBad.defineSignal()
+
+Hit:Connect(function(player, position, weapon)
     print(player.Name, "hit at", position, "with", weapon)
 end)
 
-Signals.Hit:FireClient(player, Vector3.new(0, 5, 0), "sword")
+Hit:FireClient(player, Vector3.new(0, 5, 0), "sword")
 
-Signals.Died:FireAllClients(Vector3.new(10, 0, 10))
+Died:FireAllClients(Vector3.new(10, 0, 10))
 ```
 
 ## Client
 
 ```lua
 local SignalBad = require(game:GetService("ReplicatedStorage"):WaitForChild("GameAssets"):WaitForChild("SignalBad"):WaitForChild("SignalBad"))
-local Signals = require(path.to.YourSignalsModule)
 
-Signals.Hit:Fire(Vector3.new(0, 5, 0), "sword")
+local Hit = SignalBad.defineSignal()
+local Died = SignalBad.defineSignal()
 
-Signals.Died:Connect(function(position)
+Hit:Fire(Vector3.new(0, 5, 0), "sword")
+
+Died:Connect(function(position)
     print("someone died at", position)
 end)
 ```
@@ -78,7 +91,7 @@ end)
 
 ### `SignalBad.defineNamespace(name, builder)`
 
-Groups signals together. The name is not used at runtime — it's purely for your own organization. Returns whatever the builder returns.
+Cosmetic grouping helper. The name is not used at runtime and is never sent over the network. Returns whatever the builder returns.
 
 ```lua
 local Signals = SignalBad.defineNamespace("Game", function()
@@ -90,7 +103,7 @@ end)
 
 ### `SignalBad.defineSignal(config?)`
 
-Creates and registers a new signal. Must be called at the top level of a module — never inside a function or conditional, because the packet ID is assigned at require-time and both sides must assign IDs in the same order.
+Creates and registers a new signal. Must be called at the top level — never inside a function or conditional, because the packet ID is assigned at require-time and both sides must assign IDs in the same order.
 
 `config` is optional:
 
@@ -112,7 +125,7 @@ Connects a handler. Server handlers receive `(player, ...)`, client handlers rec
 Returns a connection with a `:Disconnect()` method.
 
 ```lua
-Signals.Hit:Connect(function(player, position)
+Hit:Connect(function(player, position)
     print(player.Name, position)
 end)
 ```
@@ -126,7 +139,7 @@ Same as `Connect` but disconnects automatically after the first fire.
 Returns a Promise that resolves the next time the signal fires.
 
 ```lua
-local position = Signals.Hit:Wait():await()
+local position = Hit:Wait():await()
 ```
 
 ### `Signal:Fire(...)`
@@ -134,7 +147,7 @@ local position = Signals.Hit:Wait():await()
 Client only. Fires to the server.
 
 ```lua
-Signals.Hit:Fire(Vector3.new(0, 5, 0), "sword")
+Hit:Fire(Vector3.new(0, 5, 0), "sword")
 ```
 
 ### `Signal:FireClient(player, ...)`
@@ -142,7 +155,7 @@ Signals.Hit:Fire(Vector3.new(0, 5, 0), "sword")
 Server only. Fires to a specific client.
 
 ```lua
-Signals.Hit:FireClient(player, Vector3.new(0, 5, 0))
+Hit:FireClient(player, Vector3.new(0, 5, 0))
 ```
 
 ### `Signal:FireAllClients(...)`
@@ -150,7 +163,7 @@ Signals.Hit:FireClient(player, Vector3.new(0, 5, 0))
 Server only. Fires to all connected players.
 
 ```lua
-Signals.Died:FireAllClients(Vector3.new(10, 0, 10))
+Died:FireAllClients(Vector3.new(10, 0, 10))
 ```
 
 ### `Signal:Destroy()`
@@ -179,10 +192,11 @@ All network traffic goes through two remotes. The server listener rejects anythi
 
 ## Important rules for AI
 
-- **Always require the signals module on both server and client.** If only one side requires it, the packet IDs will not match and signals will silently not fire.
-- **Never call `defineSignal` inside a function, loop, or conditional.** It must run at require-time on both sides in the same order. If the order differs, every signal will be wired to the wrong handler.
-- **Client requires must use `WaitForChild`** all the way down to the SignalBad module itself, not just to the signals module.
+- **There is no separate signals module.** Require SignalBad directly and call `defineSignal` on it.
+- **Both server and client must require SignalBad and define signals in the same order.** If only one side defines them, or the order differs, packet IDs will not match and signals will silently not fire.
+- **Never call `defineSignal` inside a function, loop, or conditional.** It must run at require-time on both sides in the same order.
+- **Client requires must use `WaitForChild`** all the way down to the SignalBad module itself.
 - **`defineNamespace` is cosmetic.** It does not create folders or remotes. The name is not sent over the network.
-- **Rate limiting is server-enforced only.** Do not pass `rateLimit` config on the client side — only define it once in the shared module.
+- **Rate limiting is server-enforced only.** Only pass `rateLimit` config once, and make sure both sides still call `defineSignal` for that signal in the same order.
 - **`Signal:Fire` is client-only.** Calling it from a server script will error because `FireServer` does not exist on the server side.
 - **`Signal:FireClient` and `Signal:FireAllClients` are server-only.**
